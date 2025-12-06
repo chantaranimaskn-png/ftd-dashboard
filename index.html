@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Executive Dashboard: FTD Retention</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Prop Types -->
+    <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+
+    <!-- Recharts -->
+    <script src="https://unpkg.com/recharts@2.10.3/umd/Recharts.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- PapaParse & SheetJS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+        
+        body { 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            background-color: #f8fafc; 
+            color: #1e293b;
+        }
+        
+        .glass-panel { 
+            background: white; 
+            border: 1px solid #e2e8f0;
+            border-radius: 16px; 
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03); 
+        }
+        
+        .stat-card { 
+            transition: all 0.2s ease-in-out; 
+        }
+        
+        .stat-card:hover { 
+            transform: translateY(-2px); 
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08); 
+        }
+
+        /* Print Optimization */
+        @media print {
+            .no-print { display: none !important; }
+            body { background: white; }
+            .glass-panel { box-shadow: none; border: 1px solid #ddd; }
+            .print-break { page-break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect } = React;
+        const Recharts = window.Recharts || {};
+        const { 
+            ComposedChart, LineChart, Line, BarChart, Bar, ScatterChart, Scatter, ZAxis,
+            XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell 
+        } = Recharts;
+
+        // --- Icons (Inline SVG for stability) ---
+        const Icon = ({ children, className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
+        );
+        const Activity = ({ className }) => (<Icon className={className}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></Icon>);
+        const Upload = ({ className }) => (<Icon className={className}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></Icon>);
+        const Users = ({ className }) => (<Icon className={className}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></Icon>);
+        const TrendingUp = ({ className }) => (<Icon className={className}><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></Icon>);
+        const DollarSign = ({ className }) => (<Icon className={className}><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></Icon>);
+        const FileSpreadsheet = ({ className }) => (<Icon className={className}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><path d="M8 13h2" /><path d="M8 17h2" /><path d="M14 13h2" /><path d="M14 17h2" /></Icon>);
+        const Layers = ({ className }) => (<Icon className={className}><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></Icon>);
+        const Briefcase = ({ className }) => (<Icon className={className}><rect x="2" y="7" width="20" height="14" rx="2" ry="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /></Icon>);
+
+        // --- Initial Data (Full Dataset) ---
+        const INITIAL_DATA = [
+            { Brand: "789BK", "Total FTDs": 1655, "Retained in M1": 634, "Total FTD Amount": 4162025, "Cohort Month": "2024-10", "Retention Rate (%)": 0.3831 },
+            { Brand: "789BK", "Total FTDs": 11423, "Retained in M1": 3305, "Total FTD Amount": 57765001, "Cohort Month": "2024-11", "Retention Rate (%)": 0.2893 },
+            { Brand: "789BK", "Total FTDs": 29748, "Retained in M1": 8316, "Total FTD Amount": 241602330, "Cohort Month": "2024-12", "Retention Rate (%)": 0.2795 },
+            { Brand: "789BK", "Total FTDs": 8965, "Retained in M1": 2261, "Total FTD Amount": 68771252, "Cohort Month": "2025-01", "Retention Rate (%)": 0.2522 },
+            { Brand: "JAI88", "Total FTDs": 13119, "Retained in M1": 2967, "Total FTD Amount": 54396354, "Cohort Month": "2025-01", "Retention Rate (%)": 0.2262 },
+            { Brand: "SUK555", "Total FTDs": 9704, "Retained in M1": 2055, "Total FTD Amount": 53334568, "Cohort Month": "2025-01", "Retention Rate (%)": 0.2118 },
+            { Brand: "789BK", "Total FTDs": 1557, "Retained in M1": 540, "Total FTD Amount": 12091428, "Cohort Month": "2025-02", "Retention Rate (%)": 0.3468 },
+            { Brand: "JAI88", "Total FTDs": 33143, "Retained in M1": 4781, "Total FTD Amount": 181287962, "Cohort Month": "2025-02", "Retention Rate (%)": 0.1443 },
+            { Brand: "SUK555", "Total FTDs": 20002, "Retained in M1": 4910, "Total FTD Amount": 106346341, "Cohort Month": "2025-02", "Retention Rate (%)": 0.2455 },
+            { Brand: "789BK", "Total FTDs": 32580, "Retained in M1": 8635, "Total FTD Amount": 250088031, "Cohort Month": "2025-03", "Retention Rate (%)": 0.2650 },
+            { Brand: "GOGO69", "Total FTDs": 15410, "Retained in M1": 6041, "Total FTD Amount": 113465079, "Cohort Month": "2025-03", "Retention Rate (%)": 0.3920 },
+            { Brand: "JAI88", "Total FTDs": 4016, "Retained in M1": 1266, "Total FTD Amount": 33707147, "Cohort Month": "2025-03", "Retention Rate (%)": 0.3152 },
+            { Brand: "SUK555", "Total FTDs": 14670, "Retained in M1": 3041, "Total FTD Amount": 81694168, "Cohort Month": "2025-03", "Retention Rate (%)": 0.2073 },
+            { Brand: "789BK", "Total FTDs": 3766, "Retained in M1": 1587, "Total FTD Amount": 37720285, "Cohort Month": "2025-04", "Retention Rate (%)": 0.4214 },
+            { Brand: "GOGO69", "Total FTDs": 58702, "Retained in M1": 13372, "Total FTD Amount": 354611758, "Cohort Month": "2025-04", "Retention Rate (%)": 0.2278 },
+            { Brand: "JAI88", "Total FTDs": 39034, "Retained in M1": 10909, "Total FTD Amount": 239758606, "Cohort Month": "2025-04", "Retention Rate (%)": 0.2795 },
+            { Brand: "OK69", "Total FTDs": 24624, "Retained in M1": 9265, "Total FTD Amount": 150127016, "Cohort Month": "2025-04", "Retention Rate (%)": 0.3763 },
+            { Brand: "SUK555", "Total FTDs": 1559, "Retained in M1": 658, "Total FTD Amount": 20247602, "Cohort Month": "2025-04", "Retention Rate (%)": 0.4221 },
+            { Brand: "789BK", "Total FTDs": 10298, "Retained in M1": 2889, "Total FTD Amount": 62447203, "Cohort Month": "2025-05", "Retention Rate (%)": 0.2805 },
+            { Brand: "GOGO69", "Total FTDs": 6291, "Retained in M1": 2245, "Total FTD Amount": 54044375, "Cohort Month": "2025-05", "Retention Rate (%)": 0.3569 },
+            { Brand: "JAI88", "Total FTDs": 7636, "Retained in M1": 2714, "Total FTD Amount": 61965666, "Cohort Month": "2025-05", "Retention Rate (%)": 0.3554 },
+            { Brand: "OK69", "Total FTDs": 44136, "Retained in M1": 8568, "Total FTD Amount": 246288133, "Cohort Month": "2025-05", "Retention Rate (%)": 0.1941 },
+            { Brand: "SUK555", "Total FTDs": 1078, "Retained in M1": 464, "Total FTD Amount": 11898665, "Cohort Month": "2025-05", "Retention Rate (%)": 0.4304 },
+            { Brand: "YES69", "Total FTDs": 64081, "Retained in M1": 18465, "Total FTD Amount": 318261474, "Cohort Month": "2025-05", "Retention Rate (%)": 0.2882 },
+            { Brand: "789BK", "Total FTDs": 3335, "Retained in M1": 1203, "Total FTD Amount": 36534536, "Cohort Month": "2025-06", "Retention Rate (%)": 0.3607 },
+            { Brand: "GOGO69", "Total FTDs": 2819, "Retained in M1": 1080, "Total FTD Amount": 20969431, "Cohort Month": "2025-06", "Retention Rate (%)": 0.3831 },
+            { Brand: "JAI88", "Total FTDs": 3937, "Retained in M1": 1315, "Total FTD Amount": 37941440, "Cohort Month": "2025-06", "Retention Rate (%)": 0.3340 },
+            { Brand: "OK69", "Total FTDs": 2726, "Retained in M1": 1103, "Total FTD Amount": 27038656, "Cohort Month": "2025-06", "Retention Rate (%)": 0.4046 },
+            { Brand: "SUK555", "Total FTDs": 1005, "Retained in M1": 368, "Total FTD Amount": 13114583, "Cohort Month": "2025-06", "Retention Rate (%)": 0.3662 },
+            { Brand: "YES69", "Total FTDs": 10901, "Retained in M1": 3130, "Total FTD Amount": 57186399, "Cohort Month": "2025-06", "Retention Rate (%)": 0.2871 },
+            { Brand: "789BK", "Total FTDs": 3208, "Retained in M1": 922, "Total FTD Amount": 17922624, "Cohort Month": "2025-07", "Retention Rate (%)": 0.2874 },
+            { Brand: "GOGO69", "Total FTDs": 2406, "Retained in M1": 722, "Total FTD Amount": 12324844, "Cohort Month": "2025-07", "Retention Rate (%)": 0.3001 },
+            { Brand: "JAI88", "Total FTDs": 2863, "Retained in M1": 912, "Total FTD Amount": 18789463, "Cohort Month": "2025-07", "Retention Rate (%)": 0.3185 },
+            { Brand: "OK69", "Total FTDs": 1468, "Retained in M1": 651, "Total FTD Amount": 19227834, "Cohort Month": "2025-07", "Retention Rate (%)": 0.4435 },
+            { Brand: "SUK555", "Total FTDs": 1650, "Retained in M1": 384, "Total FTD Amount": 7099781, "Cohort Month": "2025-07", "Retention Rate (%)": 0.2327 },
+            { Brand: "YES69", "Total FTDs": 2399, "Retained in M1": 1040, "Total FTD Amount": 16777193, "Cohort Month": "2025-07", "Retention Rate (%)": 0.4335 },
+            { Brand: "789BK", "Total FTDs": 1919, "Retained in M1": 827, "Total FTD Amount": 15304080, "Cohort Month": "2025-08", "Retention Rate (%)": 0.4310 },
+            { Brand: "GOGO69", "Total FTDs": 1275, "Retained in M1": 533, "Total FTD Amount": 9771639, "Cohort Month": "2025-08", "Retention Rate (%)": 0.4180 },
+            { Brand: "JAI88", "Total FTDs": 1791, "Retained in M1": 759, "Total FTD Amount": 15838112, "Cohort Month": "2025-08", "Retention Rate (%)": 0.4238 },
+            { Brand: "OK69", "Total FTDs": 1210, "Retained in M1": 574, "Total FTD Amount": 11679222, "Cohort Month": "2025-08", "Retention Rate (%)": 0.4744 },
+            { Brand: "SUK555", "Total FTDs": 7580, "Retained in M1": 2602, "Total FTD Amount": 20557536, "Cohort Month": "2025-08", "Retention Rate (%)": 0.3433 },
+            { Brand: "WE67", "Total FTDs": 19947, "Retained in M1": 6524, "Total FTD Amount": 63824067, "Cohort Month": "2025-08", "Retention Rate (%)": 0.3271 },
+            { Brand: "YES69", "Total FTDs": 1662, "Retained in M1": 690, "Total FTD Amount": 14427836, "Cohort Month": "2025-08", "Retention Rate (%)": 0.4152 },
+            { Brand: "789BK", "Total FTDs": 1377, "Retained in M1": 582, "Total FTD Amount": 14388994, "Cohort Month": "2025-09", "Retention Rate (%)": 0.4227 },
+            { Brand: "GOGO69", "Total FTDs": 918, "Retained in M1": 407, "Total FTD Amount": 6102387, "Cohort Month": "2025-09", "Retention Rate (%)": 0.4434 },
+            { Brand: "JAI88", "Total FTDs": 1165, "Retained in M1": 498, "Total FTD Amount": 5409557, "Cohort Month": "2025-09", "Retention Rate (%)": 0.4275 },
+            { Brand: "MC36", "Total FTDs": 4379, "Retained in M1": 1809, "Total FTD Amount": 8083382, "Cohort Month": "2025-09", "Retention Rate (%)": 0.4131 },
+            { Brand: "ME36", "Total FTDs": 15920, "Retained in M1": 3632, "Total FTD Amount": 23855676, "Cohort Month": "2025-09", "Retention Rate (%)": 0.2281 },
+            { Brand: "OK69", "Total FTDs": 928, "Retained in M1": 440, "Total FTD Amount": 15339460, "Cohort Month": "2025-09", "Retention Rate (%)": 0.4741 },
+            { Brand: "SUK555", "Total FTDs": 10215, "Retained in M1": 2123, "Total FTD Amount": 34866339, "Cohort Month": "2025-09", "Retention Rate (%)": 0.2078 },
+            { Brand: "WE67", "Total FTDs": 20452, "Retained in M1": 4551, "Total FTD Amount": 49380243, "Cohort Month": "2025-09", "Retention Rate (%)": 0.2225 },
+            { Brand: "YES69", "Total FTDs": 1070, "Retained in M1": 490, "Total FTD Amount": 6160191, "Cohort Month": "2025-09", "Retention Rate (%)": 0.4579 },
+            { Brand: "789BK", "Total FTDs": 1216, "Retained in M1": 422, "Total FTD Amount": 5451622, "Cohort Month": "2025-10", "Retention Rate (%)": 0.3470 },
+            { Brand: "BKK67", "Total FTDs": 1, "Retained in M1": 1, "Total FTD Amount": 2340, "Cohort Month": "2025-10", "Retention Rate (%)": 1.0000 },
+            { Brand: "GOGO69", "Total FTDs": 763, "Retained in M1": 320, "Total FTD Amount": 3786638, "Cohort Month": "2025-10", "Retention Rate (%)": 0.4194 },
+            { Brand: "JAI88", "Total FTDs": 903, "Retained in M1": 322, "Total FTD Amount": 4389754, "Cohort Month": "2025-10", "Retention Rate (%)": 0.3566 },
+            { Brand: "MC36", "Total FTDs": 27879, "Retained in M1": 5691, "Total FTD Amount": 46004300, "Cohort Month": "2025-10", "Retention Rate (%)": 0.2041 },
+            { Brand: "ME36", "Total FTDs": 3223, "Retained in M1": 439, "Total FTD Amount": 4700093, "Cohort Month": "2025-10", "Retention Rate (%)": 0.1362 },
+            { Brand: "OK69", "Total FTDs": 14630, "Retained in M1": 2699, "Total FTD Amount": 31017754, "Cohort Month": "2025-10", "Retention Rate (%)": 0.1845 },
+            { Brand: "SUK555", "Total FTDs": 1037, "Retained in M1": 397, "Total FTD Amount": 10800680, "Cohort Month": "2025-10", "Retention Rate (%)": 0.3828 },
+            { Brand: "TH69", "Total FTDs": 1, "Retained in M1": 0, "Total FTD Amount": 300, "Cohort Month": "2025-10", "Retention Rate (%)": 0.0000 },
+            { Brand: "WE67", "Total FTDs": 4400, "Retained in M1": 1250, "Total FTD Amount": 11435698, "Cohort Month": "2025-10", "Retention Rate (%)": 0.2841 },
+            { Brand: "YES69", "Total FTDs": 910, "Retained in M1": 363, "Total FTD Amount": 4471291, "Cohort Month": "2025-10", "Retention Rate (%)": 0.3989 },
+            { Brand: "789BK", "Total FTDs": 1353, "Retained in M1": 327, "Total FTD Amount": 6434873, "Cohort Month": "2025-11", "Retention Rate (%)": 0.2417 },
+            { Brand: "BKK67", "Total FTDs": 15906, "Retained in M1": 3745, "Total FTD Amount": 16983783, "Cohort Month": "2025-11", "Retention Rate (%)": 0.2354 },
+            { Brand: "GOGO69", "Total FTDs": 675, "Retained in M1": 212, "Total FTD Amount": 1931669, "Cohort Month": "2025-11", "Retention Rate (%)": 0.3141 },
+            { Brand: "JAI88", "Total FTDs": 861, "Retained in M1": 258, "Total FTD Amount": 2059186, "Cohort Month": "2025-11", "Retention Rate (%)": 0.2997 },
+            { Brand: "MC36", "Total FTDs": 26078, "Retained in M1": 3400, "Total FTD Amount": 32878570, "Cohort Month": "2025-11", "Retention Rate (%)": 0.1304 },
+            { Brand: "ME36", "Total FTDs": 490, "Retained in M1": 115, "Total FTD Amount": 634401, "Cohort Month": "2025-11", "Retention Rate (%)": 0.2347 },
+            { Brand: "OK69", "Total FTDs": 1767, "Retained in M1": 448, "Total FTD Amount": 2859448, "Cohort Month": "2025-11", "Retention Rate (%)": 0.2535 },
+            { Brand: "SUK555", "Total FTDs": 725, "Retained in M1": 213, "Total FTD Amount": 2463339, "Cohort Month": "2025-11", "Retention Rate (%)": 0.2938 },
+            { Brand: "TH69", "Total FTDs": 15485, "Retained in M1": 3489, "Total FTD Amount": 14865993, "Cohort Month": "2025-11", "Retention Rate (%)": 0.2253 },
+            { Brand: "WE67", "Total FTDs": 20272, "Retained in M1": 2412, "Total FTD Amount": 27375589, "Cohort Month": "2025-11", "Retention Rate (%)": 0.1190 },
+            { Brand: "YES69", "Total FTDs": 736, "Retained in M1": 237, "Total FTD Amount": 1785384, "Cohort Month": "2025-11", "Retention Rate (%)": 0.3220 },
+        ];
+
+        // --- Components ---
+        const Card = ({ title, value, subValue, icon: IconComponent, colorClass }) => (
+            <div className="glass-panel p-6 stat-card border-l-4 border-transparent hover:border-indigo-500">
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-slate-500 text-sm font-semibold uppercase tracking-wider">{title}</h3>
+                    <div className={`p-2 rounded-lg ${colorClass} bg-opacity-10 text-white shadow-sm`}>
+                        <IconComponent className={`w-5 h-5 ${colorClass.replace('bg-', 'text-')}`} />
+                    </div>
+                </div>
+                <div className="flex flex-col">
+                    <span className="text-3xl font-bold text-slate-800">{value}</span>
+                    {subValue && <span className="text-sm text-slate-500 mt-1 font-medium">{subValue}</span>}
+                </div>
+            </div>
+        );
+
+        const FileUploader = ({ onDataLoaded }) => {
+            const handleFileUpload = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    const bstr = evt.target.result;
+                    if (file.name.endsWith('.csv')) {
+                         Papa.parse(file, {
+                            header: true,
+                            dynamicTyping: true,
+                            skipEmptyLines: true,
+                            complete: (results) => onDataLoaded(results.data)
+                        });
+                    } else {
+                        const wb = XLSX.read(bstr, { type: 'binary' });
+                        const wsname = wb.SheetNames[0];
+                        const ws = wb.Sheets[wsname];
+                        const data = XLSX.utils.sheet_to_json(ws);
+                        onDataLoaded(data);
+                    }
+                };
+                if (file.name.endsWith('.csv')) {
+                    reader.readAsText(file);
+                } else {
+                    reader.readAsBinaryString(file);
+                }
+            };
+            return (
+                <div className="relative group no-print">
+                    <input type="file" accept=".csv, .xlsx, .xls" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                    <button className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition shadow-md font-medium text-sm">
+                        <Upload className="w-4 h-4" /><span>Update Data</span>
+                    </button>
+                </div>
+            );
+        };
+
+        const Dashboard = () => {
+            const [data, setData] = useState(INITIAL_DATA);
+            const [brands, setBrands] = useState([]);
+            const [selectedBrands, setSelectedBrands] = useState(['All']);
+            const [months, setMonths] = useState([]);
+            const [dateRange, setDateRange] = useState({ start: '', end: '' });
+
+            // Data Processing
+            useEffect(() => {
+                if (!data || data.length === 0) return;
+                const normalized = data.map(row => {
+                    const getVal = (keyPart) => {
+                        const keys = Object.keys(row);
+                        let key = keys.find(k => k === keyPart) || keys.find(k => k.toLowerCase() === keyPart.toLowerCase()) || keys.find(k => k.toLowerCase().includes(keyPart.toLowerCase()));
+                        return key ? row[key] : null;
+                    };
+                    const brand = getVal('Brand') || 'Unknown';
+                    const month = getVal('Cohort Month') || getVal('Cohort_Month');
+                    if (!brand || !month) return null;
+
+                    let retentionRate = Number(getVal('Retention Rate (%)')) || Number(getVal('Retention Rate')) || 0;
+                    if (typeof getVal('Retention Rate (%)') === 'string' && getVal('Retention Rate (%)').includes('%')) {
+                         retentionRate = parseFloat(getVal('Retention Rate (%)')) / 100;
+                    }
+
+                    return {
+                        brand: brand,
+                        month: month,
+                        totalFTDs: Number(getVal('Total FTDs')) || Number(getVal('Total_FTDs')) || 0,
+                        retainedM1: Number(getVal('Retained in M1')) || Number(getVal('Total_Retained')) || 0,
+                        amount: Number(getVal('Total FTD Amount')) || Number(getVal('Amount')) || 0,
+                        retentionRate: retentionRate
+                    };
+                }).filter(Boolean);
+
+                normalized.sort((a, b) => new Date(a.month) - new Date(b.month));
+                const uniqueBrands = ['All', ...new Set(normalized.map(d => d.brand))];
+                const uniqueMonths = [...new Set(normalized.map(d => d.month))];
+
+                setBrands(uniqueBrands);
+                setMonths(uniqueMonths);
+                if (!dateRange.start || !uniqueMonths.includes(dateRange.start)) {
+                    setDateRange({ start: uniqueMonths[0], end: uniqueMonths[uniqueMonths.length - 1] });
+                }
+            }, [data]);
+
+            const processedDisplayData = useMemo(() => {
+                const normalized = data.map(row => {
+                    const getVal = (keyPart) => {
+                        const keys = Object.keys(row);
+                        let key = keys.find(k => k === keyPart) || keys.find(k => k.toLowerCase() === keyPart.toLowerCase()) || keys.find(k => k.toLowerCase().includes(keyPart.toLowerCase()));
+                        return key ? row[key] : null;
+                    };
+                    const mVal = getVal('Cohort Month') || getVal('Cohort_Month');
+                    if (!mVal) return null;
+                    let rr = Number(getVal('Retention Rate (%)')) || Number(getVal('Retention Rate')) || 0;
+                    if (typeof getVal('Retention Rate (%)') === 'string' && getVal('Retention Rate (%)').includes('%')) rr = parseFloat(getVal('Retention Rate (%)')) / 100;
+                    return {
+                        brand: getVal('Brand') || 'Unknown',
+                        month: mVal,
+                        totalFTDs: Number(getVal('Total FTDs')) || 0,
+                        retainedM1: Number(getVal('Retained in M1')) || 0,
+                        amount: Number(getVal('Total FTD Amount')) || 0,
+                        retentionRate: rr
+                    };
+                }).filter(Boolean);
+
+                return normalized.filter(item => {
+                    const brandMatch = selectedBrands.includes('All') || selectedBrands.includes(item.brand);
+                    const dateMatch = (!dateRange.start || !dateRange.end) ? true : (item.month >= dateRange.start && item.month <= dateRange.end);
+                    return brandMatch && dateMatch;
+                }).sort((a, b) => new Date(a.month) - new Date(b.month));
+            }, [data, selectedBrands, dateRange]);
+
+            // Aggregations
+            const chartsData = useMemo(() => {
+                const grouped = {};
+                processedDisplayData.forEach(item => {
+                    if (!grouped[item.month]) grouped[item.month] = { month: item.month, totalFTDs: 0, retainedM1: 0, totalAmount: 0 };
+                    grouped[item.month].totalFTDs += item.totalFTDs;
+                    grouped[item.month].retainedM1 += item.retainedM1;
+                    grouped[item.month].totalAmount += item.amount;
+                });
+                return Object.values(grouped).map(g => ({
+                    ...g,
+                    avgRetentionRate: g.totalFTDs > 0 ? (g.retainedM1 / g.totalFTDs) * 100 : 0
+                })).sort((a, b) => new Date(a.month) - new Date(b.month));
+            }, [processedDisplayData]);
+
+            const scatterData = useMemo(() => {
+                 const grouped = {};
+                 processedDisplayData.forEach(item => {
+                     if (!grouped[item.brand]) grouped[item.brand] = { brand: item.brand, totalFTDs: 0, retainedM1: 0, totalAmount: 0 };
+                     grouped[item.brand].totalFTDs += item.totalFTDs;
+                     grouped[item.brand].retainedM1 += item.retainedM1;
+                     grouped[item.brand].totalAmount += item.amount;
+                 });
+                 return Object.values(grouped).map(g => ({
+                     ...g,
+                     retentionRate: g.totalFTDs > 0 ? (g.retainedM1 / g.totalFTDs) * 100 : 0
+                 })).filter(g => g.totalFTDs > 0);
+            }, [processedDisplayData]);
+
+            const kpi = useMemo(() => {
+                const totalFTDs = processedDisplayData.reduce((sum, item) => sum + item.totalFTDs, 0);
+                const totalRetained = processedDisplayData.reduce((sum, item) => sum + item.retainedM1, 0);
+                const totalRevenue = processedDisplayData.reduce((sum, item) => sum + item.amount, 0);
+                const avgRetention = totalFTDs > 0 ? (totalRetained / totalFTDs) * 100 : 0;
+                return {
+                    ftds: totalFTDs.toLocaleString(),
+                    retained: totalRetained.toLocaleString(),
+                    revenue: totalRevenue.toLocaleString('en-US', { style: 'currency', currency: 'THB', maximumFractionDigits: 0 }),
+                    retentionRate: avgRetention.toFixed(2) + '%'
+                };
+            }, [processedDisplayData]);
+
+            const formatXAxis = (tickItem) => {
+                const date = new Date(tickItem + "-01");
+                return date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+            };
+
+            const toggleBrand = (brand) => {
+                if (brand === 'All') setSelectedBrands(['All']);
+                else {
+                    let newSelection = selectedBrands.includes('All') ? [] : [...selectedBrands];
+                    if (newSelection.includes(brand)) newSelection = newSelection.filter(b => b !== brand);
+                    else newSelection.push(brand);
+                    if (newSelection.length === 0) newSelection = ['All'];
+                    setSelectedBrands(newSelection);
+                }
+            };
+
+            const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'];
+
+            if (!Recharts || !Recharts.LineChart) return <div className="p-10 text-center text-slate-500">Initializing Executive Dashboard...</div>;
+
+            return (
+                <div className="min-h-screen pb-12">
+                    {/* Top Navigation */}
+                    <header className="bg-white border-b border-slate-200 sticky top-0 z-20 print:static print:border-none">
+                        <div className="max-w-[1400px] mx-auto px-6 py-4 flex justify-between items-center">
+                            <div className="flex items-center gap-4">
+                                <div className="bg-indigo-600 p-2.5 rounded-xl text-white shadow-lg shadow-indigo-200">
+                                    <Briefcase className="w-6 h-6" />
+                                </div>
+                                <div>
+                                    <h1 className="text-xl font-bold text-slate-800 tracking-tight">Executive Dashboard</h1>
+                                    <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">FTD & Retention Analytics</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-4 no-print">
+                                <FileUploader onDataLoaded={setData} />
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="max-w-[1400px] mx-auto px-6 mt-8 space-y-8">
+                        
+                        {/* Filters Panel */}
+                        <div className="glass-panel p-5 flex flex-wrap gap-8 items-end no-print">
+                            <div className="flex-1 min-w-[250px]">
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Cohort Period</label>
+                                <div className="flex items-center gap-3">
+                                    <div className="relative flex-1">
+                                        <select className="bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-lg block w-full p-2.5 font-medium focus:ring-2 focus:ring-indigo-500 outline-none" value={dateRange.start} onChange={(e) => setDateRange({...dateRange, start: e.target.value})}>{months.map(m => <option key={m} value={m}>{m}</option>)}</select>
+                                    </div>
+                                    <span className="text-slate-400 font-medium">to</span>
+                                    <div className="relative flex-1">
+                                        <select className="bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-lg block w-full p-2.5 font-medium focus:ring-2 focus:ring-indigo-500 outline-none" value={dateRange.end} onChange={(e) => setDateRange({...dateRange, end: e.target.value})}>{months.map(m => <option key={m} value={m}>{m}</option>)}</select>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex-[2] min-w-[300px]">
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Brand Selection</label>
+                                <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto custom-scrollbar">
+                                    {brands.map(brand => (
+                                        <button key={brand} onClick={() => toggleBrand(brand)} className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all shadow-sm ${selectedBrands.includes(brand) ? 'bg-indigo-600 text-white shadow-indigo-200' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>{brand}</button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* KPI Cards */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 print-break">
+                            <Card title="Total FTDs" value={kpi.ftds} icon={Users} colorClass="bg-indigo-500" />
+                            <Card title="Retained (M1)" value={kpi.retained} subValue="Active users next month" icon={TrendingUp} colorClass="bg-emerald-500" />
+                            <Card title="Avg. Retention Rate" value={kpi.retentionRate} subValue="Performance Indicator" icon={Activity} colorClass="bg-violet-500" />
+                            <Card title="Total Revenue" value={kpi.revenue} subValue="Gross FTD Amount" icon={DollarSign} colorClass="bg-amber-500" />
+                        </div>
+
+                        {/* Charts Area */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 print-break">
+                            
+                            {/* Chart 1 */}
+                            <div className="glass-panel p-6 h-[500px]">
+                                <div className="mb-6">
+                                    <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                        <Layers className="text-indigo-600 w-5 h-5"/> 
+                                        Volume vs. Quality Trend
+                                    </h2>
+                                    <p className="text-sm text-slate-500">Correlating new user volume (FTDs) with retention quality over time.</p>
+                                </div>
+                                <ResponsiveContainer width="100%" height="80%">
+                                    <ComposedChart data={chartsData} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                        <XAxis dataKey="month" tickFormatter={formatXAxis} stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} dy={10} />
+                                        <YAxis yAxisId="left" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} label={{ value: 'FTD Volume', angle: -90, position: 'insideLeft', fill: '#cbd5e1', fontSize: 10 }} />
+                                        <YAxis yAxisId="right" orientation="right" stroke="#6366f1" fontSize={12} unit="%" tickLine={false} axisLine={false} />
+                                        <Tooltip 
+                                            contentStyle={{ backgroundColor: '#fff', borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
+                                            formatter={(value, name) => [name === 'Retention Rate' ? `${value.toFixed(2)}%` : value.toLocaleString(), name]}
+                                        />
+                                        <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                                        <Bar yAxisId="left" dataKey="totalFTDs" name="Total FTDs" fill="#c7d2fe" radius={[6, 6, 0, 0]} barSize={40} />
+                                        <Line yAxisId="right" type="monotone" dataKey="avgRetentionRate" name="Retention Rate" stroke="#4f46e5" strokeWidth={3} dot={{ r: 4, fill: '#4f46e5', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6 }} />
+                                    </ComposedChart>
+                                </ResponsiveContainer>
+                            </div>
+
+                            {/* Chart 2 */}
+                            <div className="glass-panel p-6 h-[500px]">
+                                <div className="mb-6">
+                                    <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                        <Activity className="text-purple-600 w-5 h-5"/> 
+                                        Brand Performance Matrix
+                                    </h2>
+                                    <p className="text-sm text-slate-500">Comparing Brand Volume vs. Retention Quality. (Bubble size = Revenue)</p>
+                                </div>
+                                <ResponsiveContainer width="100%" height="80%">
+                                    <ScatterChart margin={{ top: 20, right: 30, bottom: 20, left: 10 }}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                                        <XAxis type="number" dataKey="totalFTDs" name="Total FTDs" unit="" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} label={{ value: 'Total FTDs (Volume)', position: 'bottom', offset: 0, fill: '#94a3b8', fontSize: 12 }} />
+                                        <YAxis type="number" dataKey="retentionRate" name="Retention Rate" unit="%" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} label={{ value: 'Retention Rate (Quality)', angle: -90, position: 'insideLeft', fill: '#94a3b8', fontSize: 12 }} />
+                                        <ZAxis type="number" dataKey="totalAmount" range={[200, 2000]} name="Total Amount" />
+                                        <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }) => {
+                                            if (active && payload && payload.length) {
+                                                const data = payload[0].payload;
+                                                return (
+                                                    <div className="bg-white p-4 border border-slate-100 shadow-xl rounded-xl">
+                                                        <p className="font-bold text-slate-800 text-lg mb-2">{data.brand}</p>
+                                                        <div className="space-y-1">
+                                                            <div className="flex justify-between gap-4 text-sm"><span className="text-slate-500">FTDs:</span> <span className="font-semibold text-indigo-600">{data.totalFTDs.toLocaleString()}</span></div>
+                                                            <div className="flex justify-between gap-4 text-sm"><span className="text-slate-500">Retention:</span> <span className="font-semibold text-emerald-600">{data.retentionRate.toFixed(2)}%</span></div>
+                                                            <div className="flex justify-between gap-4 text-sm"><span className="text-slate-500">Revenue:</span> <span className="font-semibold text-amber-600">{data.totalAmount.toLocaleString()}</span></div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        }} />
+                                        <Scatter name="Brands" data={scatterData} fill="#8884d8">
+                                            {scatterData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                                        </Scatter>
+                                    </ScatterChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+
+                        {/* Detailed Table */}
+                        <div className="glass-panel p-6 overflow-hidden print-break">
+                            <h2 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                                <FileSpreadsheet className="text-slate-600 w-5 h-5"/> 
+                                Detailed Performance Data
+                            </h2>
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-slate-200">
+                                    <thead className="bg-slate-50">
+                                        <tr>
+                                            <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Cohort Month</th>
+                                            <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Brand</th>
+                                            <th className="px-6 py-4 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Total FTDs</th>
+                                            <th className="px-6 py-4 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Retained M1</th>
+                                            <th className="px-6 py-4 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Retention %</th>
+                                            <th className="px-6 py-4 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Amount (THB)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-slate-100">
+                                        {processedDisplayData.map((row, idx) => (
+                                            <tr key={idx} className="hover:bg-indigo-50/30 transition-colors">
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-700">{row.month}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                    <span className="bg-slate-100 text-slate-600 px-2.5 py-1 rounded-md font-semibold text-xs border border-slate-200">{row.brand}</span>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 text-right font-medium">{row.totalFTDs.toLocaleString()}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 text-right">{row.retainedM1.toLocaleString()}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                                                    <span className={`font-bold ${row.retentionRate > 0.3 ? 'text-emerald-600' : 'text-slate-800'}`}>
+                                                        { (row.retentionRate > 1 ? row.retentionRate : row.retentionRate * 100).toFixed(2) }%
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 text-right font-mono">
+                                                    {row.amount.toLocaleString('en-US', { style: 'currency', currency: 'THB', minimumFractionDigits: 0 })}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                    </main>
+                    
+                    <footer className="max-w-[1400px] mx-auto px-6 py-8 text-center text-slate-400 text-xs no-print">
+                        <p>Generated by FTD Retention Analytics • Internal Use Only</p>
+                    </footer>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<Dashboard />);
+    </script>
+</body>
+</html>
